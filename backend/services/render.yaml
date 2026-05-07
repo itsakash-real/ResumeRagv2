@@ -17,3 +17,7 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      - key: ADZUNA_APP_ID
+        sync: false
+      - key: ADZUNA_APP_KEY
+        sync: false

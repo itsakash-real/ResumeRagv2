@@ -1,36 +1,46 @@
-
-
 import logging
 
-# Import your session maker (adjust 'database' to match your actual file)
-from database.db import SyncSessionLocal
-
+from database.db import SyncSessionLocal, sync_engine
 from models.match_result import MatchResult
 
 logger = logging.getLogger(__name__)
 
 
-def save_match_results(
-    resume_id: str,
-    matches: list[dict],
-) -> None:
-    """
-    Bulk-inserts MatchResult rows for a completed match operation.
+def _can_save_history() -> bool:
+    """Returns True only if the configured DB is reachable."""
+    try:
+        from sqlalchemy import text
 
-    This function is intentionally synchronous and receives a regular
-    (non-async) SQLAlchemy Session because FastAPI BackgroundTasks execute
-    in a threadpool executor, not the async event loop.
+        # Lightweight connectivity check
+        with sync_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Database not available; skipping match history save: %s",
+            exc,
+        )
+        return False
 
-    Args:
-        resume_id: UUID string of the parent Resume row.
-        matches: List of dicts, each containing:
-                 title, company, url, score (0–100 float).
+
+def save_match_results(resume_id: str, matches: list[dict]) -> None:
+    """Persist match results.
+
+    This is executed as a FastAPI BackgroundTasks threadpool job.
+
+    Requirement:
+      - If PostgreSQL (DB) is not reachable/unavailable, DO NOT save history.
     """
     if not matches:
         logger.info("save_match_results called with empty matches — nothing to save.")
         return
 
+    if not _can_save_history():
+        logger.info("Skipping match history save due to missing/unreachable DB.")
+        return
+
     import uuid
+
     try:
         parsed_resume_id = uuid.UUID(resume_id)
     except ValueError:
@@ -48,18 +58,18 @@ def save_match_results(
         for match in matches
     ]
 
-    # Create a fresh database session uniquely for this background thread
     db = SyncSessionLocal()
     try:
         db.add_all(rows)
         db.commit()
-        logger.info(
-            "Saved %d match results for resume_id=%s", len(rows), resume_id
-        )
+        logger.info("Saved %d match results for resume_id=%s", len(rows), resume_id)
     except Exception as exc:
         db.rollback()
         logger.exception(
-            "Failed to save match results for resume_id=%s: %s", resume_id, exc
+            "Failed to save match results for resume_id=%s: %s",
+            resume_id,
+            exc,
         )
     finally:
         db.close()
+
