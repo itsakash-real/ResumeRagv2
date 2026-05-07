@@ -1,0 +1,224 @@
+{
+  "info": {
+    "name": "ResumeRAG v2 API",
+    "description": "Complete API collection for ResumeRAG v2 — AI-powered resume-to-job matching platform.\n\nSetup:\n1. Set `base_url` to your server (default: http://localhost:8000)\n2. Run 'Auth / Signup' or 'Auth / Login' — the access_token is captured automatically.\n3. All protected routes use the {{access_token}} variable injected by the login test script.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string",
+      "description": "Backend base URL. Change to your Render deployment URL in production."
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string",
+      "description": "JWT access token. Auto-populated by the signup/login post-scripts."
+    },
+    {
+      "key": "resume_id",
+      "value": "",
+      "type": "string",
+      "description": "UUID of the most recently uploaded resume. Auto-populated by upload post-script."
+    },
+    {
+      "key": "match_id",
+      "value": "",
+      "type": "string",
+      "description": "UUID of a match result. Manually paste from GET /matches response."
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/health",
+            "description": "Liveness probe. No auth required.\n\nExpected response (200):\n{\n  \"status\": \"ok\",\n  \"timestamp\": \"2025-01-15T12:00:00.000Z\",\n  \"version\": \"2.0.0\"\n}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('access_token', body.access_token);",
+                  "  console.log('access_token saved to collection variables.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/signup",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"mypassword123\"\n}"
+            },
+            "description": "Register a new account.\n\nExpected response (201):\n{\n  \"access_token\": \"<jwt>\",\n  \"refresh_token\": \"<jwt>\",\n  \"token_type\": \"bearer\"\n}\n\nErrors:\n- 400: Email already registered\n- 422: Password < 8 chars or invalid email"
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('access_token', body.access_token);",
+                  "  console.log('access_token saved to collection variables.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"mypassword123\"\n}"
+            },
+            "description": "Authenticate with email + password.\n\nExpected response (200):\n{\n  \"access_token\": \"<jwt>\",\n  \"refresh_token\": \"<jwt>\",\n  \"token_type\": \"bearer\"\n}\n\nErrors:\n- 401: Invalid email or password"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Resume",
+      "item": [
+        {
+          "name": "Upload Resume",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('resume_id', body.resume_id);",
+                  "  console.log('resume_id saved:', body.resume_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/resume/upload",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Select a PDF resume from your machine (max 5MB)."
+                }
+              ]
+            },
+            "description": "Upload a PDF resume. Validates magic bytes (not extension).\n\nExpected response (201):\n{\n  \"resume_id\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\",\n  \"char_count\": 3241\n}\n\nErrors:\n- 400: Not a valid PDF (magic byte check failed)\n- 413: File exceeds 5MB\n- 422: Scanned/image PDF with no extractable text"
+          }
+        },
+        {
+          "name": "Analyze Resume",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/resume/analyze",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resume_id\": \"{{resume_id}}\"\n}"
+            },
+            "description": "Calls Groq (Llama 3.3 70B) to extract structured profile from resume text.\nResult is cached in the DB — subsequent /match calls reuse it.\n\nExpected response (200):\n{\n  \"skills\": [\"Python\", \"FastAPI\", \"PostgreSQL\"],\n  \"experience_years\": 4,\n  \"job_titles\": [\"Backend Engineer\", \"Software Developer\"],\n  \"summary\": \"Backend engineer with 4 years building APIs.\"\n}\n\nErrors:\n- 404: resume_id not found\n- 403: Resume belongs to another user\n- 502: Groq API unavailable"
+          }
+        },
+        {
+          "name": "Match Resume",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/resume/match",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resume_id\": \"{{resume_id}}\"\n}"
+            },
+            "description": "Full AI pipeline: profile extraction → Adzuna job fetch → MiniLM embeddings → FAISS ranking.\nRate limited to 10 requests/hour per IP.\n\nExpected response (200):\n{\n  \"profile\": {\n    \"skills\": [\"Python\", \"FastAPI\"],\n    \"experience_years\": 4,\n    \"job_titles\": [\"Backend Engineer\"],\n    \"summary\": \"...\"\n  },\n  \"matches\": [\n    {\n      \"title\": \"Senior Python Developer\",\n      \"company\": \"TechCorp\",\n      \"location\": \"Remote, US\",\n      \"url\": \"https://...\",\n      \"description\": \"...\",\n      \"salary_min\": 100000,\n      \"salary_max\": 140000,\n      \"score\": 89.3\n    }\n  ]\n}\n\nErrors:\n- 404: resume_id not found\n- 403: Resume belongs to another user\n- 429: Rate limit exceeded (10/hour)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Matches",
+      "item": [
+        {
+          "name": "Get Match History",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/matches?page=1&limit=10&min_score=70&sort=score_desc",
+              "host": ["{{base_url}}"],
+              "path": ["matches"],
+              "query": [
+                { "key": "page", "value": "1", "description": "Page number (default: 1)" },
+                { "key": "limit", "value": "10", "description": "Results per page, max 50 (default: 10)" },
+                { "key": "min_score", "value": "70", "description": "Minimum score filter 0–100 (default: 0)" },
+                { "key": "sort", "value": "score_desc", "description": "score_desc | score_asc | date_desc" }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "description": "Returns paginated match history scoped to the current user.\ntotal reflects filtered count, not raw table size.\n\nExpected response (200):\n{\n  \"total\": 42,\n  \"page\": 1,\n  \"limit\": 10,\n  \"results\": [\n    {\n      \"id\": \"<uuid>\",\n      \"job_title\": \"Senior Python Developer\",\n      \"company\": \"TechCorp\",\n      \"url\": \"https://...\",\n      \"score\": 89.3,\n      \"created_at\": \"2025-01-15T12:00:00Z\"\n    }\n  ]\n}"
+          }
+        },
+        {
+          "name": "Delete Match Result",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/matches/{{match_id}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{access_token}}" }]
+            },
+            "description": "Permanently deletes a match result. Only the owning user may delete.\n\nExpected response: 204 No Content (empty body)\n\nErrors:\n- 400: Invalid UUID format\n- 403: Match belongs to another user\n- 404: Match not found"
+          }
+        }
+      ]
+    }
+  ]
+}
